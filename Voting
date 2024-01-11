@@ -1,0 +1,206 @@
+pragma solidity ^0.8.0;
+// SPDX-License-Identifier:MIT
+
+//access= 0x5B38Da6a701c568545dCfcB03FcB875f56beddC4
+
+contract Voting {
+    address Admin;
+    uint timestamp;
+    uint8 currentLeaderVotes;
+    bool isVoting;
+    bool VoteCountStatus;
+    
+    uint8 currentLeader;
+    address currentLeaderAddress;
+    string VotingUpdate;
+    struct Candidate{
+        uint8 count;
+        uint8 candidateID;
+        address CandidateAddress;
+        string CandidateName;
+        string CandidateOath;
+    }
+    struct Voter{
+        uint8 voterID;
+        address VoterAddress;
+        uint8 voteFor;
+        address delegateAddress;
+        uint8 delegateID;
+    }
+    mapping (uint8 => Candidate) candidate;
+    mapping (uint8 => Voter) voter;
+     mapping (address => mapping (uint8 => bool))OnlyvoteOnce;
+    mapping (uint => bool) absentVoter;
+    mapping (address => bool) RegisteredOnce;
+    mapping (address => bool) VoterRegisteredOnce;
+    mapping (uint => uint) IDAddedOnce;
+    mapping (address => mapping (uint8 => bool)) VoterIDAddedOnce;
+    mapping (address => bool)CandidateAlreadyAddedDetails;
+    mapping (address => mapping (uint8 => bool))voteOnce;
+    
+
+    event startVoting (address indexed Admin, string VotingUpdate, bool returnValue, uint Time);
+    event stopVoting (address indexed Admin, string VotingUpdate,bool returnValue, uint Time);
+    event newLeader (bool returnValue, uint8 Leader, address indexed CandidateAddress);
+    event tieBreaker(bool returnValue);
+    event candidateInfo (bool returnValue, uint CandidateID, string CandidateName, address indexed CandidateAddress);
+    event voterInfo (bool returnValue, uint VoterID, address indexed VoterAddress);
+    event delegate (bool returnValue, uint DelegateID, address indexed DelegateAddress, uint DelegateFor, uint DelegateVoteFor);
+    event Vote (bool returnValue, uint VoterID, address indexed VoterAddress, uint VoteFor);
+
+    constructor() {
+        Admin= 0x5B38Da6a701c568545dCfcB03FcB875f56beddC4;
+         
+    }
+    modifier onlyAdmin() {
+        require (msg.sender==Admin, "Only Admin can access this");
+        _;
+    }
+    function Start_Election() external onlyAdmin returns (bool){
+       require(!isVoting, "Voting is active");
+       
+       isVoting=true;
+       VotingUpdate="Voting is active";
+       timestamp= block.timestamp;
+       emit startVoting(msg.sender,VotingUpdate ,true, block.timestamp);
+       return true;
+       
+    }
+    function Stop_Election() external onlyAdmin returns (bool){
+        
+        require(isVoting, "Voting is inactive");
+        
+        isVoting= false;
+        VotingUpdate="Voting is inactive";
+        timestamp= block.timestamp;
+        emit stopVoting(msg.sender, VotingUpdate,true, block.timestamp);
+        return true;
+
+    }
+    
+    function addCandidate( uint8 _candidateID,address _candidateAddress,string memory _CandidateName, string memory _CandidateOath) external returns (bool){
+           require (_candidateAddress==msg.sender, "Different Candidate Applying");
+           require (IDAddedOnce[_candidateID]== 0, "Candidate Already Applied");
+           require(candidate[_candidateID].CandidateAddress == address(0), "Candidate ID already taken");
+           require (!RegisteredOnce[msg.sender], "Candidate already registered");
+           require (!RegisteredOnce[_candidateAddress], "Candidate already registered");
+           require(!isVoting, "Candidates cannot register when Voting process is in active state");
+           IDAddedOnce[_candidateID]=_candidateID;
+            RegisteredOnce[msg.sender]= true;
+            RegisteredOnce[_candidateAddress]= true;
+           require (!CandidateAlreadyAddedDetails[msg.sender]," Candidate Already Added Details");
+           CandidateAlreadyAddedDetails[msg.sender]= true;
+           Candidate storage candidates= candidate[_candidateID];
+           candidates.candidateID= _candidateID;
+           candidates.CandidateAddress= _candidateAddress;
+           candidates.CandidateName= _CandidateName;
+           candidates.CandidateOath= _CandidateOath;
+           emit candidateInfo(true, candidates.candidateID, candidates.CandidateName, candidates.CandidateAddress);
+           return true;
+    }
+    function addVoter(uint8 _voterID,address _voterAddress) external returns (bool){
+        
+         require(_voterAddress== msg.sender, "Different Voter");
+         require (!VoterIDAddedOnce[msg.sender][_voterID], "Voter already applied");
+         require (voter[_voterID].VoterAddress== address(0), "Voter ID already taken");
+         require (!VoterRegisteredOnce[msg.sender], "Voter already registered");
+         require (!VoterRegisteredOnce[_voterAddress], "Voter Address already registered");
+         require(!isVoting, "Voters cannot register when Voting process is in active state");
+         VoterRegisteredOnce[msg.sender]=true;
+         VoterIDAddedOnce[msg.sender][_voterID]=true;
+         VoterRegisteredOnce[_voterAddress]=true;
+         voter[_voterID].voterID= _voterID;
+         voter[_voterID].VoterAddress= _voterAddress;
+         emit voterInfo(true, voter[_voterID].voterID,voter[_voterID].VoterAddress );
+         return true;
+    }
+    function delegateVote(uint8 _delegate_To_VoterID, address _delegate_To_VoterAddress, uint8 _delegateID,uint8 _VoteFor_candidateID, address _delegateAddress) external returns(bool){
+         
+         require (VoterIDAddedOnce[_delegate_To_VoterAddress][_delegate_To_VoterID], "Delegating for different voter with different voter ID");
+         require (VoterRegisteredOnce[_delegate_To_VoterAddress], "Voter Address not found");
+         require (VoterRegisteredOnce[_delegateAddress], "Delegate Voter Address not found");
+         require (IDAddedOnce[_VoteFor_candidateID]!=0, "Candidate Not Found");
+          require(!voteOnce[msg.sender][_delegate_To_VoterID], "Already Voted");
+          require (!absentVoter[_delegate_To_VoterID], "This ID is already voted");
+          absentVoter[_delegate_To_VoterID]=true;
+          voteOnce[msg.sender][_delegate_To_VoterID]= true;
+           require(!voteOnce[msg.sender][_delegateID], "Delegate  Voted Max");
+           voteOnce[msg.sender][_delegateID]= true;
+         require (isVoting, "Delegate voter can vote only when voting process is active");
+       
+         voter[_delegateID].voterID=_delegateID;
+         voter[_delegateID].VoterAddress= _delegateAddress;
+         voter[_delegate_To_VoterID].VoterAddress= _delegate_To_VoterAddress;
+         voter[_delegateID].voteFor=_VoteFor_candidateID;
+         incrementCandidateCount( _VoteFor_candidateID);
+         emit delegate(true, _delegateID, _delegateAddress, _delegate_To_VoterID, _VoteFor_candidateID);
+        return true;
+    }
+    function vote( uint8 _voterID,uint8 _Vote_For_CandidateID, address _voterAddress) external returns (bool){
+          require(_voterAddress== msg.sender, "Different Voter");
+          require (!absentVoter[_voterID], "This ID is already voted");
+         require(!OnlyvoteOnce[msg.sender][_voterID], "Already Voted");
+         require (IDAddedOnce[_Vote_For_CandidateID]!=0, "Candidate Not Found");
+         require (VoterIDAddedOnce[msg.sender][_voterID], "Already Voted");
+         require (isVoting, "Voter can vote only when Voting process is active");
+     
+         voter[_voterID].voteFor= _Vote_For_CandidateID;
+         voter[_voterID].VoterAddress= _voterAddress;
+         OnlyvoteOnce[msg.sender][_voterID]= true;
+         //require(RegisteredOnce[_candidateAddress], "No Candidate found");
+         incrementCandidateCount( _Vote_For_CandidateID);
+         emit Vote(true, _voterID,_voterAddress , _Vote_For_CandidateID);
+         return true;
+    }
+         
+
+    function incrementCandidateCount (uint8 _candidateID) internal returns (bool) {
+         candidate[_candidateID].count++;
+         if (candidate[_candidateID].count > currentLeaderVotes) {
+         currentLeaderVotes = candidate[_candidateID].count;
+         currentLeader = _candidateID;
+         currentLeaderAddress= candidate[_candidateID].CandidateAddress;
+         VoteCountStatus=true;
+         emit newLeader(true, _candidateID, candidate[_candidateID].CandidateAddress);
+        
+    }   
+         else if(candidate[_candidateID].count == currentLeaderVotes) {
+         emit tieBreaker(true); // Emit tieBreaker only when there's a tie between different candidates
+         VoteCountStatus=false;
+    }
+        else {
+        emit newLeader(true, currentLeader, candidate[_candidateID].CandidateAddress);
+   }
+        return true;
+    }
+    function displayVotersDetails(uint8 _voterID) public view returns (uint8 Voter_ID, address Voter_Address){
+        return ( voter[_voterID].voterID, voter[_voterID].VoterAddress );
+    }
+   function displayCandidateDetails(uint8 _candidateID) public view returns (uint8 Candidate_ID, address Candidate_Address, string memory Candidate_Name, string memory Candidate_Oath) {
+    Candidate storage candidateData = candidate[_candidateID];
+    return (candidateData.candidateID, candidateData.CandidateAddress, candidateData.CandidateName, candidateData.CandidateOath);
+}
+   function displayCandidateCount(uint8 _candidateID) public view returns (uint){
+   
+    return ( candidate[_candidateID].count);
+   }
+   
+   function displayWinner() public view returns (uint8 Candidate_ID, uint8 Candidate_Total_Votes , address Candidate_Address, string memory){
+       if (VoteCountStatus==true){
+       return(currentLeader, currentLeaderVotes, currentLeaderAddress, "");
+   }
+      else{
+         address emptyAddress = address(0);
+        return(0,0,emptyAddress,"Tie");
+      }
+   }
+   function votingStatus() public view returns (string memory Voting_Status){
+      if (isVoting){
+        return ("Active");
+      }
+      else{
+        return ("Inactive");
+      }
+   }
+}
+  
